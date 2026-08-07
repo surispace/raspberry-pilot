@@ -13,8 +13,6 @@ typedef struct {
 	long src;
 } can_frame;
 
-extern "C" {
-
 void can_list_to_can_capnp_cpp(const std::vector<can_frame> &can_list, std::string &out, bool sendCan, bool valid) {
   capnp::MallocMessageBuilder msg;
   cereal::Event::Builder event = msg.initRoot<cereal::Event>();
@@ -32,6 +30,4 @@ void can_list_to_can_capnp_cpp(const std::vector<can_frame> &can_list, std::stri
   auto words = capnp::messageToFlatArray(msg);
   auto bytes = words.asBytes();
   out.append((const char *)bytes.begin(), bytes.size());
-}
-
 }

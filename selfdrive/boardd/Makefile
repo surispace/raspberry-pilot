@@ -1,5 +1,6 @@
 CC = clang
 CXX = clang++
+PYTHON ?= python3
 
 ARCH := $(shell uname -m)
 OS := $(shell uname -o)
@@ -81,7 +82,7 @@ boardd.o: boardd.cc
 
 
 boardd_api_impl.so: libcan_list_to_can_capnp.a boardd_api_impl.pyx boardd_setup.py
-	python3 boardd_setup.py build_ext --inplace
+	$(PYTHON) boardd_setup.py build_ext --inplace
 	rm -rf build
 	rm -f boardd_api_impl.cpp
 

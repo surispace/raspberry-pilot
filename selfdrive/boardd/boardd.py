@@ -1,10 +1,11 @@
 # pylint: skip-file
 import os
 import subprocess
+import sys
 
 # Cython
 boardd_api_dir = os.path.dirname(os.path.abspath(__file__))
-subprocess.check_call(["make", "boardd_api_impl.so"], cwd=boardd_api_dir)
+subprocess.check_call(["make", f"PYTHON={sys.executable}", "boardd_api_impl.so"], cwd=boardd_api_dir)
 from selfdrive.boardd.boardd_api_impl import can_list_to_can_capnp
 assert can_list_to_can_capnp
 

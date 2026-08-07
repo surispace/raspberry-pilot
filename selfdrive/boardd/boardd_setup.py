@@ -1,29 +1,39 @@
+import shlex
 import subprocess
-from distutils.core import Extension, setup  # pylint: disable=import-error,no-name-in-module
+from setuptools import Extension, setup
 
 from Cython.Build import cythonize
 
 from common.cython_hacks import BuildExtWithoutPlatformSuffix
 
-PHONELIBS = '../../phonelibs'
+def pkg_config(flag):
+  try:
+    out = subprocess.check_output(["pkg-config", flag, "capnp"], encoding='utf8').strip()
+  except (subprocess.CalledProcessError, FileNotFoundError):
+    return []
+  return shlex.split(out)
 
-ARCH = subprocess.check_output(["uname", "-m"], encoding='utf8').rstrip()  # pylint: disable=unexpected-keyword-arg
-ARCH_DIR = 'x64' if ARCH == "x86_64" else 'aarch64'
+
+extra_compile_args = ["-std=c++14"]
+extra_link_args = ["-lcapnp_c"]
+
+for token in pkg_config("--cflags"):
+  if token.startswith("-I"):
+    continue
+  extra_compile_args.append(token)
+
+extra_link_args.extend(pkg_config("--libs"))
 
 setup(name='Boardd API Implementation',
       cmdclass={'build_ext': BuildExtWithoutPlatformSuffix},
       ext_modules=cythonize(
         Extension(
           "boardd_api_impl",
-          libraries=[':libcan_list_to_can_capnp.a', ':libcapnp.a', ':libcapnp.a', ':libkj.a'],
-          library_dirs=[
-            './',
-            PHONELIBS + '/capnp-cpp/' + ARCH_DIR + '/lib/',
-            PHONELIBS + '/capnp-c/' + ARCH_DIR + '/lib/'
-          ],
           sources=['boardd_api_impl.pyx'],
           language="c++",
-          extra_compile_args=["-std=c++11"],
+          extra_compile_args=extra_compile_args,
+          extra_objects=['./libcan_list_to_can_capnp.a'],
+          extra_link_args=extra_link_args,
         )
       )
 )
