@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 from setuptools import Extension, setup
@@ -5,6 +6,8 @@ from setuptools import Extension, setup
 from Cython.Build import cythonize
 
 from common.cython_hacks import BuildExtWithoutPlatformSuffix
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
 
 def pkg_config(flag):
   try:
@@ -32,7 +35,7 @@ setup(name='Boardd API Implementation',
           sources=['boardd_api_impl.pyx'],
           language="c++",
           extra_compile_args=extra_compile_args,
-          extra_objects=['./libcan_list_to_can_capnp.a'],
+          extra_objects=[os.path.join(_HERE, 'libcan_list_to_can_capnp.a')],
           extra_link_args=extra_link_args,
         )
       )
