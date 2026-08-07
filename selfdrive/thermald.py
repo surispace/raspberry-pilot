@@ -26,73 +26,62 @@ with open(BASEDIR + "/selfdrive/controls/lib/alerts_offroad.json") as json_file:
   OFFROAD_ALERTS = json.load(json_file)
 
 # Thermal zone mapping detection for Pi4 vs Pi5
-# Pi4 thermal zones: cpu[5,7,10,12], mem[2], gpu[16], bat[29]
-# Pi5 thermal zones: cpu[0,1,2,3], mem[4], gpu_freq[5], soc[9], bat[10]
+# Pi4 (Ubuntu 20): cpu[5,7,10,12], mem[2], gpu[16], bat[29]
+# Pi5 (Ubuntu 24): only zone0 (cpu-thermal) exists; all sensors map to it
 _THERMAL_ZONES = {}
 
-def detect_thermal_zones():
-  """Auto-detect thermal zone mappings based on available zones and device model."""
-  global _THERMAL_ZONES
-  
-  zones = {}
-  
-  # Check which thermal zones exist
+def _zone_exists(n):
+  return os.path.exists("/sys/devices/virtual/thermal/thermal_zone%d/temp" % n)
+
+def _zone_type(n):
   try:
-    # Try Pi5 mapping first (typically has zones 0-10+)
-    if os.path.exists("/sys/devices/virtual/thermal/thermal_zone0/temp"):
-      # Check for Pi5-specific zone names
-      try:
-        with open("/sys/devices/virtual/thermal/thermal_zone0/type") as f:
-          tz_type = f.read().strip()
-        if "cpu" in tz_type.lower():
-          # Looks like Pi5 with named zones
-          zones["cpu0"] = 0
-          zones["cpu1"] = 1
-          zones["cpu2"] = 2
-          zones["cpu3"] = 3
-          zones["mem"] = 4
-          zones["gpu_freq"] = 5
-          zones["soc"] = 9
-          zones["bat"] = 10
-        else:
-          # Fall back to Pi4 mapping
-          zones["cpu0"] = 5
-          zones["cpu1"] = 7
-          zones["cpu2"] = 10
-          zones["cpu3"] = 12
-          zones["mem"] = 2
-          zones["gpu"] = 16
-          zones["bat"] = 29
-      except (IOError, OSError):
-        # Fall back to Pi4 mapping
-        zones["cpu0"] = 5
-        zones["cpu1"] = 7
-        zones["cpu2"] = 10
-        zones["cpu3"] = 12
-        zones["mem"] = 2
-        zones["gpu"] = 16
-        zones["bat"] = 29
+    with open("/sys/devices/virtual/thermal/thermal_zone%d/type" % n) as f:
+      return f.read().strip().lower()
+  except (IOError, OSError):
+    return ""
+
+def detect_thermal_zones():
+  """Auto-detect thermal zone mappings based on what sysfs actually provides."""
+  global _THERMAL_ZONES
+
+  zones = {}
+
+  if not _zone_exists(0):
+    # No zone0 at all — very old kernel or non-standard setup; use Pi4 defaults
+    zones = {"cpu0": 5, "cpu1": 7, "cpu2": 10, "cpu3": 12,
+             "mem": 2, "gpu": 16, "bat": 29}
+    _THERMAL_ZONES = zones
+    print(f"No thermal zones found, using Pi4 defaults: {_THERMAL_ZONES}")
+    return
+
+  # Find the highest available zone index
+  max_zone = 0
+  for i in range(30):
+    if _zone_exists(i):
+      max_zone = i
     else:
-      # Default to Pi4 mapping if zone 0 doesn't exist
-      zones["cpu0"] = 5
-      zones["cpu1"] = 7
-      zones["cpu2"] = 10
-      zones["cpu3"] = 12
-      zones["mem"] = 2
-      zones["gpu"] = 16
-      zones["bat"] = 29
-  except Exception as e:
-    print(f"Error detecting thermal zones, using Pi4 defaults: {e}")
-    zones["cpu0"] = 5
-    zones["cpu1"] = 7
-    zones["cpu2"] = 10
-    zones["cpu3"] = 12
-    zones["mem"] = 2
-    zones["gpu"] = 16
-    zones["bat"] = 29
-  
+      break
+
+  if max_zone == 0:
+    # Pi5 / Ubuntu 24: only zone0 (cpu-thermal) exists
+    # Map everything to zone0 — it reports the SoC temperature
+    zones = {"cpu0": 0, "cpu1": 0, "cpu2": 0, "cpu3": 0,
+             "mem": 0, "gpu": 0, "bat": 0}
+  elif _zone_type(0) == "cpu-thermal" and max_zone < 5:
+    # Single consolidated thermal zone
+    zones = {"cpu0": 0, "cpu1": 0, "cpu2": 0, "cpu3": 0,
+             "mem": 0, "gpu": 0, "bat": 0}
+  elif max_zone >= 29:
+    # Pi4 / Ubuntu 20: many zones including bat at 29
+    zones = {"cpu0": 5, "cpu1": 7, "cpu2": 10, "cpu3": 12,
+             "mem": 2, "gpu": 16, "bat": 29}
+  else:
+    # Unknown layout: map everything to zone0 as safe fallback
+    zones = {"cpu0": 0, "cpu1": 0, "cpu2": 0, "cpu3": 0,
+             "mem": 0, "gpu": 0, "bat": 0}
+
   _THERMAL_ZONES = zones
-  print(f"Detected thermal zones: {_THERMAL_ZONES}")
+  print(f"Detected thermal zones (max={max_zone}): {_THERMAL_ZONES}")
 
 def read_tz(x):
   with open("/sys/devices/virtual/thermal/thermal_zone%d/temp" % x) as f:
@@ -107,12 +96,12 @@ def read_thermal():
   if not _THERMAL_ZONES:
     detect_thermal_zones()
   
-  dat.thermal.cpu0 = read_tz(_THERMAL_ZONES.get("cpu0", 5))
-  dat.thermal.cpu1 = read_tz(_THERMAL_ZONES.get("cpu1", 7))
-  dat.thermal.cpu2 = read_tz(_THERMAL_ZONES.get("cpu2", 10))
-  dat.thermal.cpu3 = read_tz(_THERMAL_ZONES.get("cpu3", 12))
-  dat.thermal.mem = read_tz(_THERMAL_ZONES.get("mem", 2))
-  dat.thermal.gpu = read_tz(_THERMAL_ZONES.get("gpu", _THERMAL_ZONES.get("gpu_freq", 16)))
+  dat.thermal.cpu0 = read_tz(_THERMAL_ZONES.get("cpu0", 0))
+  dat.thermal.cpu1 = read_tz(_THERMAL_ZONES.get("cpu1", 0))
+  dat.thermal.cpu2 = read_tz(_THERMAL_ZONES.get("cpu2", 0))
+  dat.thermal.cpu3 = read_tz(_THERMAL_ZONES.get("cpu3", 0))
+  dat.thermal.mem = read_tz(_THERMAL_ZONES.get("mem", 0))
+  dat.thermal.gpu = read_tz(_THERMAL_ZONES.get("gpu", 0))
   dat.thermal.bat = read_tz(_THERMAL_ZONES.get("bat", 29))
   return dat
 
