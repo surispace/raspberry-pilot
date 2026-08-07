@@ -8,6 +8,8 @@ from Cython.Build import cythonize
 from common.cython_hacks import BuildExtWithoutPlatformSuffix
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(os.path.dirname(_HERE))   # raspilot/
+_SELFDRIVE = os.path.dirname(_HERE)                # raspilot/selfdrive/
 
 def pkg_config(flag):
   try:
@@ -34,7 +36,7 @@ setup(name='Boardd API Implementation',
           "boardd_api_impl",
           sources=['boardd_api_impl.pyx', 'can_list_to_can_capnp.cc'],
           language="c++",
-          include_dirs=['../..'],
+          include_dirs=[_ROOT, _SELFDRIVE],
           extra_compile_args=extra_compile_args,
           extra_link_args=extra_link_args,
         )
