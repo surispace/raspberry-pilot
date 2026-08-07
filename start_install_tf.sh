@@ -73,7 +73,7 @@ fi
 # connect to Wifi (these are optional parameters and won't block the script from running)
 if [ -n "${RASPILOT_SKIP_NETWORK_SETUP:-}" ]; then
   echo "Skipping WiFi connection for validation environment."
-elif [ -n "$1" ] && [ -n "$2" ]; then
+elif [ -n "${1:-}" ] && [ -n "${2:-}" ]; then
   sudo nmcli d wifi connect "$1" password "$2"
 else
   echo "Skipping WiFi connection because SSID/password were not provided."
