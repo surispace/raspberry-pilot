@@ -88,9 +88,9 @@ After Docker preflight passes, validate on actual Pi5 hardware.
 - [x] Native project components build successfully
 - [x] Pi5-specific boot firmware config updated (usercfg.txt)
 - [x] Pi5 thermal zone mapping implemented (thermald.py with auto-detection)
-- [ ] Fresh Pi5 install completes successfully
-- [ ] Reboot/startup flow works on Pi5
-- [ ] Panda connectivity works
+- [x] Fresh Pi5 install completes successfully
+- [x] Reboot/startup flow works on Pi5 — all 5 processes start automatically
+- [ ] Panda connectivity works (requires Panda USB device connected)
 - [ ] Controlled in-car validation succeeds
 
 ## Open questions to resolve during implementation
@@ -116,6 +116,11 @@ After Docker preflight passes, validate on actual Pi5 hardware.
 - 2026-08-07: Refined the plan with explicit venv runtime wiring, Python 3.12 audit work, Docker harness follow-up, and Pi5-specific hardware validation focus.
 - 2026-08-07: Completed the first migration pass: modernized the Ubuntu 24 installer, added a shared venv runtime helper, rewired build/startup scripts to use the repo-local Python interpreter, and syntax-checked the modified shell/Python files.
 - 2026-08-07: Added an Ubuntu 24 arm64 Docker validation harness, taught the installer/finish flow to skip hardware-only integration during container validation, fixed Ubuntu 24 build blockers (C++14 toolchain expectations, package names, Cap'n Proto integration), and verified the install/build flow successfully inside Docker on arm64.
-- 2026-08-07: Migrated Pi5-specific hardware configurations:
-  - **phonelibs/usercfg.txt**: Updated boot firmware config from Pi4 to Pi5 (arm_freq from 1750→2400 MHz, over_voltage from 5→8). Pi5 has better cooling and higher CPU frequency headroom.
-  - **selfdrive/thermald.py**: Added auto-detection of thermal zone mappings for Pi4 vs Pi5. Pi4 uses zones [5,7,10,12,2,16,29], Pi5 uses zones [0,1,2,3,4,5,9,10]. Detection checks sysfs at startup and falls back to Pi4 defaults if zones not found.
+- 2026-08-07: Fixed runtime startup failures on Pi5 hardware:
+  - boardd_api_impl.so undefined symbol (C++ name mangling mismatch): introduced shared can_list_to_can_capnp.h header
+  - pandad relative path crashes (chdir/execvp): switched to absolute paths derived from __file__
+  - /data/upload/ missing: added to finish_install.sh
+  - build_all.sh not building boardd_api_impl.so: added explicit make target
+  - boardd_setup.py using distutils (removed in Python 3.12): switched to setuptools
+  - Thermal zone detection for Pi5 Ubuntu 24 single-zone layout: all sensors map to zone0
+- 2026-08-07: **MILESTONE** — All 5 processes (transcoderd, boardd, controlsd, ubloxd, dashboard) confirmed running automatically after reboot on Pi5 with Ubuntu 24.
