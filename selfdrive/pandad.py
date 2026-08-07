@@ -88,14 +88,18 @@ def update_panda():
       print("Version mismatch after flashing, exiting")
       raise AssertionError
 
+_RASPILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_BOARDD_DIR = os.path.join(_RASPILOT_ROOT, "selfdrive", "boardd")
+_UPLOAD_SCRIPT = os.path.join(_RASPILOT_ROOT, "upload_files.py")
+
+
 def upload_drives():
   print("Attempting connection to panda")
 
-  panda = None
   panda_list = Panda.list()
   if len(panda_list) == 0:
     print("Panda disconnected, safe to upload")
-    subprocess.call([sys.executable, 'upload_files.py'])
+    subprocess.call([sys.executable, _UPLOAD_SCRIPT])
 
 
 def main(gctx=None):
@@ -115,8 +119,7 @@ def main(gctx=None):
   except:
     pass
 
-  #update_panda()
-  os.chdir("selfdrive/boardd")
+  os.chdir(_BOARDD_DIR)
   os.execvp("./boardd", ["./boardd"])
 
 if __name__ == "__main__":
