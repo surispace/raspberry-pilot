@@ -1,6 +1,10 @@
 # Place "config.txt" changes (dtparam, dtoverlay, disable_overscan, etc.) in
 # this file. Please refer to the README file for a description of the various
 # configuration files on the boot partition.
+#
+# This config is optimized for Raspberry Pi 5
+# For Pi4, reduce arm_freq to 1750 and over_voltage to 5
+
 dtoverlay=dwc2,dr_mode=host
 
 # set SD card to full clock
@@ -9,7 +13,8 @@ dtoverlay=dwc2,dr_mode=host
 # disable bluetooth
 #dtoverlay=pi4-disable-bt
 
-# overclock it
-over_voltage=5
-arm_freq=1750
-#gpu_freq=750
+# Pi5 overclock settings (higher headroom than Pi4)
+# Pi5 has better cooling and supports higher frequency/voltage
+over_voltage=8
+arm_freq=2400
+#gpu_freq=1000
