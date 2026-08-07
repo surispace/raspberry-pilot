@@ -7,6 +7,7 @@ cd "$RASPILOT_ROOT"
 if [ -z "${RASPILOT_SKIP_SYSTEM_INTEGRATION:-}" ]; then
   sudo mkdir -p /data
   sudo mkdir -p /data/params
+  sudo mkdir -p /data/upload
   sudo chown ubuntu /data
   sudo chown ubuntu /data/params
   sudo tee /etc/udev/rules.d/11-panda.rules <<EOF

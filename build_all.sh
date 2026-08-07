@@ -10,6 +10,7 @@ PYTHONPATH="$RASPILOT_ROOT" make
 cd "$RASPILOT_ROOT/selfdrive/boardd"
 make clean
 PYTHONPATH="$RASPILOT_ROOT" make
+PYTHONPATH="$RASPILOT_ROOT" make PYTHON="$RASPILOT_PYTHON" boardd_api_impl.so
 cd "$RASPILOT_ROOT/selfdrive/locationd"
 make clean
 PYTHONPATH="$RASPILOT_ROOT" make
