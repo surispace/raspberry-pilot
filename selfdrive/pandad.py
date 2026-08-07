@@ -88,7 +88,7 @@ def update_panda():
       print("Version mismatch after flashing, exiting")
       raise AssertionError
 
-_RASPILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_RASPILOT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BOARDD_DIR = os.path.join(_RASPILOT_ROOT, "selfdrive", "boardd")
 _UPLOAD_SCRIPT = os.path.join(_RASPILOT_ROOT, "upload_files.py")
 
