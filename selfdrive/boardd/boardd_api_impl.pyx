@@ -4,8 +4,8 @@ from libcpp.vector cimport vector
 from libcpp.string cimport string
 from libcpp cimport bool
 
-cdef extern from "can_list_to_can_capnp.cc":
-  cdef struct can_frame:
+cdef extern from "can_list_to_can_capnp.h":
+  cdef cppclass can_frame:
     long address
     string dat
     long busTime

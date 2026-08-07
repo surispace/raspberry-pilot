@@ -1,17 +1,11 @@
 #include <vector>
 #include <tuple>
 #include <string>
+#include "can_list_to_can_capnp.h"
 #include "common/timing.h"
 #include <capnp/serialize.h>
 #include "cereal/gen/cpp/log.capnp.h"
 #include "cereal/gen/cpp/car.capnp.h"
-
-typedef struct {
-	long address;
-	std::string dat;
-	long busTime;
-	long src;
-} can_frame;
 
 void can_list_to_can_capnp_cpp(const std::vector<can_frame> &can_list, std::string &out, bool sendCan, bool valid) {
   capnp::MallocMessageBuilder msg;
