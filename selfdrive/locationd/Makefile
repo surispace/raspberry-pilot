@@ -14,7 +14,7 @@ WARN_FLAGS = -Werror=implicit-function-declaration \
              -Werror=format-extra-args
 
 CFLAGS = -std=gnu11 -g -fPIC -I../ -I../../ -O2 $(WARN_FLAGS)
-CXXFLAGS = -std=c++11 -g -fPIC -I../ -I../../ -O2 $(WARN_FLAGS)
+CXXFLAGS = -std=c++14 -g -fPIC -I../ -I../../ -O2 $(WARN_FLAGS)
 
 #ZMQ_LIBS = -l:libczmq.a -l:libzmq.a -lgnustl_shared
 ZMQ_FLAGS = -I$(PHONELIBS)/zmq/aarch64/include

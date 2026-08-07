@@ -1,5 +1,5 @@
 #!/bin/bash
-cd ~/raspilot
-export PYTHONPATH="$PWD"
+. "$HOME/raspilot/python_env.sh"
+cd "$RASPILOT_ROOT"
 pkill -f dashboard
-taskset -a --cpu-list 2,3 python ~/raspilot/dashboard.py &
+taskset -a --cpu-list 2,3 "$RASPILOT_PYTHON" "$RASPILOT_ROOT/dashboard.py" &

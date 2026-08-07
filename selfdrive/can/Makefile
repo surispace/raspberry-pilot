@@ -15,7 +15,7 @@ WARN_FLAGS = -Werror=implicit-function-declaration \
              -Wno-deprecated-declarations
 
 CFLAGS = -std=gnu11 -g -fPIC -O2 $(WARN_FLAGS)
-CXXFLAGS = -std=c++11 -g -fPIC -O2 $(WARN_FLAGS)
+CXXFLAGS = -std=c++14 -g -fPIC -O2 $(WARN_FLAGS)
 LDFLAGS =
 
 ifeq ($(ARCH),aarch64)

@@ -6,7 +6,7 @@
       user: ubuntu
       name: "Launch Raspberry Pilot"
       special_time: reboot
-      job: "bash raspilot/launch_openpilot.sh"
+      job: "bash /home/ubuntu/raspilot/launch_openpilot.sh"
       state: present
   - name: "Adjust the niceness of critical porcesses"
     cron:

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3
 import os
 import sys
 import fcntl
@@ -204,7 +204,7 @@ def start_daemon_process(name, params):
       pass
 
   cloudlog.info("starting daemon %s" % name)
-  proc = subprocess.Popen(['python', '-m', proc],
+  proc = subprocess.Popen([sys.executable, '-m', proc],
                          cwd='/',
                          stdout=open('/dev/null', 'w'),
                          stderr=open('/dev/null', 'w'),

@@ -1,5 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import os
+import subprocess
+import sys
 import zmq
 import time
 import json
@@ -500,7 +502,11 @@ while 1:
 
     if IP_ADDRESS != socket.gethostbyname_ex(HOSTNAME)[2][0]:
       os.system("pkill -f controlsd")
-      os.system("taskset -a --cpu-list 0,1 python ~/raspilot/selfdrive/controls/controlsd.py &")
+      subprocess.Popen([
+        "taskset", "-a", "--cpu-list", "0,1",
+        os.environ.get("RASPILOT_PYTHON", sys.executable),
+        os.path.expanduser("~/raspilot/selfdrive/controls/controlsd.py"),
+      ])
       IP_ADDRESS = socket.gethostbyname_ex(HOSTNAME)[2][0]
       
     execution_time_avg += (max(0.0001, time_factor) * ((time.time()*1000 - start_time) - execution_time_avg))

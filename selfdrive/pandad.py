@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # simple boardd wrapper that updates the panda first
 import os
+import sys
 import subprocess
 import time
 from selfdrive.kegman_conf import kegman_conf
@@ -34,7 +35,7 @@ def update_panda():
         print("black", panda.health())
 
     if len(panda_list) > 0: break
-    
+
     # flash on DFU mode Panda
     panda_dfu = PandaDFU.list()
     if len(panda_dfu) > 0:
@@ -92,18 +93,18 @@ def upload_drives():
 
   panda = None
   panda_list = Panda.list()
-  if len(panda_list) == 0: 
+  if len(panda_list) == 0:
     print("Panda disconnected, safe to upload")
-    subprocess.call(['python3', 'upload_files.py'])
+    subprocess.call([sys.executable, 'upload_files.py'])
 
 
 def main(gctx=None):
   setproctitle('pandad')
   try:
     kegman = kegman_conf()  #.read_config()
-    if bool(int(kegman.conf['useAutoFlash'])): 
+    if bool(int(kegman.conf['useAutoFlash'])):
       update_panda()
-    if bool(int(kegman.conf['autoUpload'])): 
+    if bool(int(kegman.conf['autoUpload'])):
       upload_drives()
     params = Params()
     panda = Panda.list()

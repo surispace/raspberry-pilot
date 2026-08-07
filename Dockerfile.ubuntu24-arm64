@@ -1,0 +1,27 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    sudo \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    software-properties-common \
+    locales \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN id -u ubuntu >/dev/null 2>&1 || useradd -m -s /bin/bash ubuntu \
+  && echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/ubuntu \
+  && chmod 0440 /etc/sudoers.d/ubuntu
+
+COPY --chown=ubuntu:ubuntu . /home/ubuntu/raspberry-pilot
+
+WORKDIR /home/ubuntu
+
+CMD ["bash", "/home/ubuntu/raspberry-pilot/docker/validate_ubuntu24.sh"]

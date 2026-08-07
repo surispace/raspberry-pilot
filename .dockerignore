@@ -1,0 +1,11 @@
+.git
+.copilot
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.swp
+models
+node-red
+plan.md
+

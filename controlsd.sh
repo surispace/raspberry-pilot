@@ -1,8 +1,8 @@
 #!/bin/bash
-cd ~/raspilot
-export PYTHONPATH="$PWD"
+. "$HOME/raspilot/python_env.sh"
+cd "$RASPILOT_ROOT"
 #pkill -f controlsd
 sleep 5
-python ~/raspilot/selfdrive/controls/controlsd.py
+"$RASPILOT_PYTHON" "$RASPILOT_ROOT/selfdrive/controls/controlsd.py"
 sleep 10
-bash ~/raspilot/fix_niceness.sh
+bash "$RASPILOT_ROOT/fix_niceness.sh"
