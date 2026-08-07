@@ -32,10 +32,10 @@ setup(name='Boardd API Implementation',
       ext_modules=cythonize(
         Extension(
           "boardd_api_impl",
-          sources=['boardd_api_impl.pyx'],
+          sources=['boardd_api_impl.pyx', 'can_list_to_can_capnp.cc'],
           language="c++",
+          include_dirs=['../..'],
           extra_compile_args=extra_compile_args,
-          extra_objects=[os.path.join(_HERE, 'libcan_list_to_can_capnp.a')],
           extra_link_args=extra_link_args,
         )
       )
