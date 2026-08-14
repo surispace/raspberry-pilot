@@ -57,7 +57,7 @@ Software installation
 
 1.  Log into the Pi using “ubuntu” as the ID and password if you are not still logged in from earlier steps. Clone the repository
 ```
-git clone https://github.com/surispace/raspberry-pilot.git
+git clone -b honda-support-pi5 https://github.com/surispace/raspberry-pilot.git
 mv raspberry-pilot/start_install_tf.sh .
 sh start_install_tf.sh
 ```
