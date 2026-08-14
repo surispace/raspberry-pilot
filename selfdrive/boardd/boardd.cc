@@ -27,11 +27,70 @@
 #include "common/timing.h"
 
 #include <map>
+#include <vector>
 #include <algorithm>
 
 // double the FIFO size
 #define RECV_SIZE (0x1000)
 #define TIMEOUT 0
+
+// Red panda (STM32H7) CAN packet framing: variable-length, 6-byte header + checksum
+#define CANPACKET_HEAD_SIZE 6U
+#define CANPACKET_DATA_SIZE_MAX 64U
+#define CAN_REJECTED_BUS_OFFSET 0xC0U
+#define CAN_RETURNED_BUS_OFFSET 0x80U
+
+// matches dlc_to_len in opendbc/safety/can.h
+static const unsigned char dlc_to_len[] = {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 12U, 16U, 20U, 24U, 32U, 48U, 64U};
+
+// matches CANPacket_t bit layout in opendbc/safety/can.h
+struct __attribute__((packed)) can_header {
+  uint8_t reserved : 1;
+  uint8_t bus : 3;
+  uint8_t data_len_code : 4;
+  uint8_t rejected : 1;
+  uint8_t returned : 1;
+  uint8_t extended : 1;
+  uint32_t addr : 29;
+  uint8_t checksum : 8;
+};
+
+struct can_frame {
+  long address;
+  std::string dat;
+  long src;
+};
+
+// red panda (H7) health packet — matches redpanda/board/health.h
+struct __attribute__((packed)) red_health_t {
+  uint32_t uptime_pkt;
+  uint32_t voltage_pkt;
+  uint32_t current_pkt;
+  uint32_t safety_tx_blocked_pkt;
+  uint32_t safety_rx_invalid_pkt;
+  uint32_t tx_buffer_overflow_pkt;
+  uint32_t rx_buffer_overflow_pkt;
+  uint32_t faults_pkt;
+  uint8_t ignition_line_pkt;
+  uint8_t ignition_can_pkt;
+  uint8_t controls_allowed_pkt;
+  uint8_t car_harness_status_pkt;
+  uint8_t safety_mode_pkt;
+  uint16_t safety_param_pkt;
+  uint8_t fault_status_pkt;
+  uint8_t power_save_enabled_pkt;
+  uint8_t heartbeat_lost_pkt;
+  uint16_t alternative_experience_pkt;
+  float interrupt_load_pkt;
+  uint8_t fan_power;
+  uint8_t safety_rx_checks_invalid_pkt;
+  uint16_t spi_error_count_pkt;
+  uint16_t sbu1_voltage_mV;
+  uint16_t sbu2_voltage_mV;
+  uint8_t som_reset_triggered;
+  uint16_t sound_output_level_pkt;
+  float temperature;
+};
 
 namespace {
 
@@ -47,6 +106,7 @@ bool fake_send = false;
 bool loopback_can = false;
 cereal::HealthData::HwType hw_type = cereal::HealthData::HwType::UNKNOWN;
 bool is_pigeon = false;
+bool is_red = false;
 const uint32_t NO_IGNITION_CNT_MAX = 2 * 60 * 60 * 24 * 3;  // turn off charge after 3 days
 uint32_t no_ignition_cnt = 0;
 bool connected_once = false;
@@ -60,6 +120,55 @@ int big_recv;
 uint32_t big_data[RECV_SIZE*4];
 std::map<uint32_t, uint64_t> message_index;
 bool index_initialized = false;
+
+// buffer for reassembling variable-length red CAN packets across bulk reads
+static uint8_t receive_buffer[RECV_SIZE + CANPACKET_HEAD_SIZE + CANPACKET_DATA_SIZE_MAX];
+static uint32_t receive_buffer_size = 0;
+
+static uint8_t calculate_checksum(const uint8_t *data, uint32_t len) {
+  uint8_t checksum = 0U;
+  for (uint32_t i = 0U; i < len; i++) {
+    checksum ^= data[i];
+  }
+  return checksum;
+}
+
+// unpack a stream of red CAN packets (6-byte header + variable data + checksum)
+static bool unpack_can_buffer(uint8_t *data, uint32_t &size, std::vector<can_frame> &out_vec) {
+  int pos = 0;
+  while (pos <= (int)(size - sizeof(can_header))) {
+    can_header header;
+    memcpy(&header, &data[pos], sizeof(can_header));
+
+    if (header.data_len_code >= 16) {
+      break;
+    }
+    const uint8_t data_len = dlc_to_len[header.data_len_code];
+    if (pos + sizeof(can_header) + data_len > size) {
+      // incomplete packet, held for next read
+      break;
+    }
+    if (calculate_checksum(&data[pos], sizeof(can_header) + data_len) != 0) {
+      LOGW("Panda CAN checksum failed");
+      size = 0;
+      return false;
+    }
+
+    can_frame frame;
+    frame.address = header.addr;
+    frame.src = header.bus;
+    if (header.rejected) frame.src += CAN_REJECTED_BUS_OFFSET;
+    if (header.returned) frame.src += CAN_RETURNED_BUS_OFFSET;
+    frame.dat.assign((char *)&data[pos + sizeof(can_header)], data_len);
+    out_vec.push_back(frame);
+
+    pos += sizeof(can_header) + data_len;
+  }
+  // keep any trailing partial packet
+  memmove(data, &data[pos], size - pos);
+  size -= pos;
+  return true;
+}
 
 void pigeon_init();
 void *pigeon_thread(void *crap);
@@ -160,8 +269,15 @@ bool usb_connect() {
     libusb_control_transfer(dev_handle, 0xc0, 0xe5, 1, 0, NULL, 0, TIMEOUT);
   }
 
-  // power off ESP
-  libusb_control_transfer(dev_handle, 0xc0, 0xd9, 0, 0, NULL, 0, TIMEOUT);
+  // get hw type early so we can branch protocol (red panda has no ESP/USB-power)
+  libusb_control_transfer(dev_handle, 0xc0, 0xc1, 0, 0, hw_query, 1, TIMEOUT);
+  hw_type = (cereal::HealthData::HwType)(hw_query[0]);
+  is_red = (hw_type == cereal::HealthData::HwType::RED_PANDA);
+
+  // red panda has no ESP; skip ESP power-off
+  if (!is_red) {
+    libusb_control_transfer(dev_handle, 0xc0, 0xd9, 0, 0, NULL, 0, TIMEOUT);
+  }
 
   // get panda serial
   err = libusb_control_transfer(dev_handle, 0xc0, 0xd0, 0, 0, serial_buf, 16, TIMEOUT);
@@ -173,17 +289,15 @@ bool usb_connect() {
     LOGW("panda serial: %.*s\n", serial_sz, serial);
   }*/
 
-  // power on charging, only the first time. Panda can also change mode and it causes a brief disconneciton
+  // power on charging, only the first time. Panda can also change mode and it causes a brief disconneciton.
+  // red panda repurposed 0xe6, so skip it there
 //#ifndef __x86_64__
-  if (!connected_once) {
+  if (!connected_once && !is_red) {
     libusb_control_transfer(dev_handle, 0xc0, 0xe6, (uint16_t)(cereal::HealthData::UsbPowerMode::CDP), 0, NULL, 0, TIMEOUT);
   }
 //#endif
   connected_once = true;
 
-  libusb_control_transfer(dev_handle, 0xc0, 0xc1, 0, 0, hw_query, 1, TIMEOUT);
-
-  hw_type = (cereal::HealthData::HwType)(hw_query[0]);
   is_pigeon = (hw_type == cereal::HealthData::HwType::GREY_PANDA) ||
               (hw_type == cereal::HealthData::HwType::BLACK_PANDA); 
   if (is_pigeon) {
@@ -193,6 +307,9 @@ bool usb_connect() {
       err = pthread_create(&pigeon_thread_handle, NULL, pigeon_thread, NULL);
       assert(err == 0);
     }
+  }
+  if (is_red) {
+    LOGW("red panda detected");
   }
 
   return true;
@@ -230,17 +347,19 @@ uint64_t read_u64_be(const uint8_t* v) {
 bool can_recv(void *s, bool force_send) {
   int err;
   uint32_t data[RECV_SIZE/4];
+  uint8_t rdata[RECV_SIZE];
   int recv, big_index;
-  uint32_t f1, f2, address;
-  bool frame_sent;
-  uint64_t cur_time;
-  frame_sent = false;
+  bool frame_sent = false;
 
   // do recv
   pthread_mutex_lock(&usb_lock);
 
   do {
-    err = libusb_bulk_transfer(dev_handle, 0x81, (uint8_t*)data, RECV_SIZE, &recv, TIMEOUT);
+    if (is_red) {
+      err = libusb_bulk_transfer(dev_handle, 0x81, rdata, RECV_SIZE, &recv, TIMEOUT);
+    } else {
+      err = libusb_bulk_transfer(dev_handle, 0x81, (uint8_t*)data, RECV_SIZE, &recv, TIMEOUT);
+    }
     if (err != 0) { handle_usb_issue(err, __func__); }
     if (err == -8) { LOGW("overflow got 0x%x", recv); };
 
@@ -250,31 +369,30 @@ bool can_recv(void *s, bool force_send) {
 
   pthread_mutex_unlock(&usb_lock);
 
-  // return if both buffers are empty
-  /*if ((big_recv <= 0) && (recv <= 0)) {
-  return true;~
-  }*/
   if (recv <= 0) {
     return false;
   }
 
-  // TODO: Split bus 0 and 1 into separate packets synced to 330 for bus 0 and 586 for bus 1
-  big_index = big_recv/0x10;
-  force_send = false;
-  int j = 0;
-  for (int i = 0; i<(recv/0x10); i++) {
-    auto message = message_index.find(data[i*4] >> 21);
-    if ((message != message_index.end()) | (index_initialized == false)) {
-      if (data[i*4] >> 21 == 330) force_send = true;
-      big_data[(big_index + j)*4] = data[i*4];
-      big_data[(big_index + j)*4+1] = data[i*4+1];
-      big_data[(big_index + j)*4+2] = data[i*4+2];
-      big_data[(big_index + j)*4+3] = data[i*4+3];
-      big_recv += 0x10;    
-      j++;
+  if (!is_red) {
+    // **** black/grey/white panda: fixed 16-byte frames ****
+    big_index = big_recv/0x10;
+    force_send = false;
+    int j = 0;
+    for (int i = 0; i < (recv/0x10); i++) {
+      auto message = message_index.find(data[i*4] >> 21);
+      if ((message != message_index.end()) | (index_initialized == false)) {
+        if (data[i*4] >> 21 == 330) force_send = true;
+        big_data[(big_index + j)*4] = data[i*4];
+        big_data[(big_index + j)*4+1] = data[i*4+1];
+        big_data[(big_index + j)*4+2] = data[i*4+2];
+        big_data[(big_index + j)*4+3] = data[i*4+3];
+        big_recv += 0x10;
+        j++;
+      }
     }
-  }
-  if (force_send) {
+    if (!force_send) {
+      return false;
+    }
     frame_sent = true;
 
     capnp::MallocMessageBuilder msg;
@@ -283,14 +401,10 @@ bool can_recv(void *s, bool force_send) {
 
     auto can_data = event.initCan(big_recv/0x10);
 
-    // populate message
-    for (int i = 0; i<(big_recv/0x10); i++) {
+    for (int i = 0; i < (big_recv/0x10); i++) {
       if (big_data[i*4] & 4) {
-        // extended
         can_data[i].setAddress(big_data[i*4] >> 3);
-        //LOGW("got extended: %x\n", big_data[i*4] >> 3);
       } else {
-        // normal
         can_data[i].setAddress(big_data[i*4] >> 21);
       }
       can_data[i].setBusTime(big_data[i*4+1] >> 16);
@@ -299,12 +413,60 @@ bool can_recv(void *s, bool force_send) {
       can_data[i].setSrc((big_data[i*4+1] >> 4) & 0xff);
     }
 
-    // send to can
     auto words = capnp::messageToFlatArray(msg);
     auto bytes = words.asBytes();
     zmq_send(s, bytes.begin(), bytes.size(), 0);
     big_recv = 0;
+    return frame_sent;
   }
+
+  // **** red panda: variable-length 6-byte-header packets ****
+  // ensure we don't overflow the reassembly buffer
+  if (receive_buffer_size + recv > sizeof(receive_buffer)) {
+    receive_buffer_size = 0;
+  }
+  assert(receive_buffer_size + recv <= sizeof(receive_buffer));
+  memcpy(&receive_buffer[receive_buffer_size], rdata, recv);
+  receive_buffer_size += recv;
+
+  std::vector<can_frame> frames;
+  if (!unpack_can_buffer(receive_buffer, receive_buffer_size, frames)) {
+    return false;
+  }
+  if (frames.empty()) {
+    return false;
+  }
+
+  // filter by message_index and mark force_send
+  std::vector<can_frame> chosen;
+  for (const auto &frame : frames) {
+    auto message = message_index.find((uint32_t)frame.address);
+    if ((message != message_index.end()) | (index_initialized == false)) {
+      if (frame.address == 330) force_send = true;
+      chosen.push_back(frame);
+    }
+  }
+  if (!force_send || chosen.empty()) {
+    return false;
+  }
+  frame_sent = true;
+
+  capnp::MallocMessageBuilder msg;
+  cereal::Event::Builder event = msg.initRoot<cereal::Event>();
+  event.setLogMonoTime(nanos_since_boot());
+
+  auto can_data = event.initCan(chosen.size());
+
+  for (size_t i = 0; i < chosen.size(); i++) {
+    can_data[i].setAddress(chosen[i].address);
+    can_data[i].setBusTime(0);
+    can_data[i].setDat(kj::arrayPtr((const uint8_t*)chosen[i].dat.data(), chosen[i].dat.size()));
+    can_data[i].setSrc(chosen[i].src & 0xff);
+  }
+
+  auto words = capnp::messageToFlatArray(msg);
+  auto bytes = words.asBytes();
+  zmq_send(s, bytes.begin(), bytes.size(), 0);
 
   return frame_sent;
 }
@@ -313,7 +475,7 @@ void can_health(void *s) {
   int cnt;
   int err;
 
-  // copied from panda/board/main.c
+  // black/grey/white panda health (copied from panda/board/main.c)
   struct __attribute__((packed)) health {
     uint32_t voltage;
     uint32_t current;
@@ -326,27 +488,42 @@ void can_health(void *s) {
     uint8_t car_harness_status;
     uint8_t usb_power_mode;
   } health;
+  // red panda (H7) health packet
+  red_health_t rhealth;
+  uint8_t health_buf[sizeof(red_health_t)];
 
   // recv from board
   pthread_mutex_lock(&usb_lock);
 
-  do {
-    cnt = libusb_control_transfer(dev_handle, 0xc0, 0xd2, 0, 0, (unsigned char*)&health, sizeof(health), TIMEOUT);
-    if (cnt != sizeof(health)) {
-      handle_usb_issue(cnt, __func__);
-    }
-  } while(cnt != sizeof(health));
+  if (is_red) {
+    do {
+      cnt = libusb_control_transfer(dev_handle, 0xc0, 0xd2, 0, 0, health_buf, sizeof(rhealth), TIMEOUT);
+      if (cnt != (int)sizeof(rhealth)) {
+        handle_usb_issue(cnt, __func__);
+      }
+    } while(cnt != (int)sizeof(rhealth));
+    memcpy(&rhealth, health_buf, sizeof(rhealth));
+  } else {
+    do {
+      cnt = libusb_control_transfer(dev_handle, 0xc0, 0xd2, 0, 0, (unsigned char*)&health, sizeof(health), TIMEOUT);
+      if (cnt != sizeof(health)) {
+        handle_usb_issue(cnt, __func__);
+      }
+    } while(cnt != sizeof(health));
+  }
 
   pthread_mutex_unlock(&usb_lock);
 
-  if (health.started == 0) {
+  const uint32_t started = is_red ? (rhealth.ignition_line_pkt || rhealth.ignition_can_pkt) : health.started;
+
+  if (started == 0) {
     no_ignition_cnt += 1;
   } else {
     no_ignition_cnt = 0;
   }
 
 //#ifndef __x86_64__
-//  if ((no_ignition_cnt > NO_IGNITION_CNT_MAX) && (health.usb_power_mode == (uint8_t)(cereal::HealthData::UsbPowerMode::CDP))) {
+//  if ((no_ignition_cnt > NO_IGNITION_CNT_MAX) && (!is_red) && (health.usb_power_mode == (uint8_t)(cereal::HealthData::UsbPowerMode::CDP))) {
 //    LOGW("TURN OFF CHARGING!\n");
 //    pthread_mutex_lock(&usb_lock);
 //    libusb_control_transfer(dev_handle, 0xc0, 0xe6, (uint16_t)(cereal::HealthData::UsbPowerMode::CLIENT), 0, NULL, 0, TIMEOUT);
@@ -355,7 +532,7 @@ void can_health(void *s) {
 //#endif
 
   // clear VIN, CarParams, and set new safety on car start
-  if ((health.started != 0) && (ignition_last == 0)) {
+  if ((started != 0) && (ignition_last == 0)) {
 
     int result = delete_db_value(NULL, "CarVin");
     assert((result == 0) || (result == ERR_NO_VALUE));
@@ -373,7 +550,7 @@ void can_health(void *s) {
     }
   }
 
-  ignition_last = health.started;
+  ignition_last = started;
 
   // create message
   capnp::MallocMessageBuilder msg;
@@ -382,21 +559,32 @@ void can_health(void *s) {
   auto healthData = event.initHealth();
 
   // set fields
-  healthData.setVoltage(health.voltage);
-  healthData.setCurrent(health.current);
-  if (spoofing_started) {
-    healthData.setStarted(1);
+  if (is_red) {
+    healthData.setVoltage(rhealth.voltage_pkt);
+    healthData.setCurrent(rhealth.current_pkt);
+    if (!spoofing_started) {
+      healthData.setStarted(started);
+    }
+    healthData.setControlsAllowed(rhealth.controls_allowed_pkt);
+    healthData.setHasGps(is_pigeon);
+    healthData.setHwType(hw_type);
   } else {
-    healthData.setStarted(health.started);
+    healthData.setVoltage(health.voltage);
+    healthData.setCurrent(health.current);
+    if (spoofing_started) {
+      healthData.setStarted(1);
+    } else {
+      healthData.setStarted(health.started);
+    }
+    healthData.setControlsAllowed(health.controls_allowed);
+    healthData.setGasInterceptorDetected(health.gas_interceptor_detected);
+    healthData.setHasGps(is_pigeon);
+    healthData.setCanSendErrs(health.can_send_errs);
+    healthData.setCanFwdErrs(health.can_fwd_errs);
+    healthData.setGmlanSendErrs(health.gmlan_send_errs);
+    healthData.setHwType(hw_type);
+    healthData.setUsbPowerMode(cereal::HealthData::UsbPowerMode(health.usb_power_mode));
   }
-  healthData.setControlsAllowed(health.controls_allowed);
-  healthData.setGasInterceptorDetected(health.gas_interceptor_detected);
-  healthData.setHasGps(is_pigeon);
-  healthData.setCanSendErrs(health.can_send_errs);
-  healthData.setCanFwdErrs(health.can_fwd_errs);
-  healthData.setGmlanSendErrs(health.gmlan_send_errs);
-  healthData.setHwType(hw_type);
-  healthData.setUsbPowerMode(cereal::HealthData::UsbPowerMode(health.usb_power_mode));
 
   // send to health
   auto words = capnp::messageToFlatArray(msg);
@@ -434,23 +622,6 @@ void can_send(void *s) {
   //}
   int msg_count = event.getCan().size();
 
-  uint32_t *send = (uint32_t*)malloc(msg_count*0x10);
-  memset(send, 0, msg_count*0x10);
-
-  for (int i = 0; i < msg_count; i++) {
-    auto cmsg = event.getSendcan()[i];
-    if (cmsg.getAddress() >= 0x800) {
-      // extended
-      send[i*4] = (cmsg.getAddress() << 3) | 5;
-    } else {
-      // normal
-      send[i*4] = (cmsg.getAddress() << 21) | 1;
-    }
-    assert(cmsg.getDat().size() <= 8);
-    send[i*4+1] = cmsg.getDat().size() | (cmsg.getSrc() << 4);
-    memcpy(&send[i*4+2], cmsg.getDat().begin(), cmsg.getDat().size());
-  }
-
   // release msg
   zmq_msg_close(&msg);
 
@@ -459,16 +630,70 @@ void can_send(void *s) {
   pthread_mutex_lock(&usb_lock);
 
   if (!fake_send) {
-    do {
-      err = libusb_bulk_transfer(dev_handle, 3, (uint8_t*)send, msg_count*0x10, &sent, TIMEOUT);
-      if (err != 0 || msg_count*0x10 != sent) { handle_usb_issue(err, __func__); }
-    } while(err != 0);
+    if (is_red) {
+      // **** red panda: variable-length 6-byte-header + checksum packets ****
+      int msg_count_orig = event.getSendcan().size();
+      uint32_t send_sz = 0;
+      uint8_t *rsend = (uint8_t*)malloc((CANPACKET_HEAD_SIZE + CANPACKET_DATA_SIZE_MAX) * msg_count_orig);
+
+      for (int i = 0; i < msg_count_orig; i++) {
+        auto cmsg = event.getSendcan()[i];
+        uint32_t addr = cmsg.getAddress();
+        uint8_t bus = cmsg.getSrc();
+        auto dat = cmsg.getDat();
+        assert(dat.size() <= CANPACKET_DATA_SIZE_MAX);
+
+        can_header header = {};
+        header.bus = bus;
+        header.extended = (addr >= 0x800) ? 1 : 0;
+        header.addr = addr;
+        header.data_len_code = 0;
+        for (int d = 0; d < 16; d++) {
+          if (dlc_to_len[d] == dat.size()) { header.data_len_code = d; break; }
+        }
+        assert(header.data_len_code != 0 || dat.size() == 0);
+
+        uint8_t *packet = &rsend[send_sz];
+        memcpy(packet, &header, sizeof(can_header));
+        memcpy(packet + sizeof(can_header), dat.begin(), dat.size());
+        uint32_t msg_size = sizeof(can_header) + dat.size();
+        ((can_header*)packet)->checksum = calculate_checksum(packet, msg_size);
+        send_sz += msg_size;
+      }
+
+      do {
+        err = libusb_bulk_transfer(dev_handle, 3, rsend, send_sz, &sent, TIMEOUT);
+        if (err != 0 || (int)send_sz != sent) { handle_usb_issue(err, __func__); }
+      } while(err != 0);
+      free(rsend);
+    } else {
+      // **** black/grey/white panda: fixed 16-byte frames ****
+      uint32_t *send = (uint32_t*)malloc(msg_count*0x10);
+      memset(send, 0, msg_count*0x10);
+
+      for (int i = 0; i < msg_count; i++) {
+        auto cmsg = event.getSendcan()[i];
+        if (cmsg.getAddress() >= 0x800) {
+          send[i*4] = (cmsg.getAddress() << 3) | 5;
+        } else {
+          send[i*4] = (cmsg.getAddress() << 21) | 1;
+        }
+        assert(cmsg.getDat().size() <= 8);
+        send[i*4+1] = cmsg.getDat().size() | (cmsg.getSrc() << 4);
+        memcpy(&send[i*4+2], cmsg.getDat().begin(), cmsg.getDat().size());
+      }
+
+      do {
+        err = libusb_bulk_transfer(dev_handle, 3, (uint8_t*)send, msg_count*0x10, &sent, TIMEOUT);
+        if (err != 0 || msg_count*0x10 != sent) { handle_usb_issue(err, __func__); }
+      } while(err != 0);
+      free(send);
+    }
   }
 
   pthread_mutex_unlock(&usb_lock);
 
   // done
-  free(send);
 }
 
 // **** threads ****
