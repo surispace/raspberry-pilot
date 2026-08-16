@@ -256,7 +256,12 @@ bool usb_connect() {
   int serial_sz = 0;
   ignition_last = 0;
 
+  // newer (pre-flashed) red pandas enumerate under comma's registered VID 0x3801,
+  // older black/grey/white pandas use 0xbbaa. Try both.
   dev_handle = libusb_open_device_with_vid_pid(ctx, 0xbbaa, 0xddcc);
+  if (dev_handle == NULL) {
+    dev_handle = libusb_open_device_with_vid_pid(ctx, 0x3801, 0xddcc);
+  }
   if (dev_handle == NULL) { goto fail; }
 
   err = libusb_set_configuration(dev_handle, 1);
