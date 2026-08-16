@@ -67,6 +67,28 @@ sh start_install_tf.sh
 5.  Look for `controlsd`, `boardd`, `ubloxd`, `transcoderd`, and `dashboard` in the rightmost column of the list.
 6.  If you see all five, next move to flash your Panda step, if fails check the logs and ask chatGPT
 
+Red Panda USB permissions (udev rule)
+--------------------------------------
+
+Newer (pre-flashed) red pandas enumerate under comma's registered USB VID `3801` (older black/grey/white pandas use `bbaa`). The default `11-panda.rules` only grants `0666` access to the `bbaa` VID, so the red panda's device node stays `root:root` and `boardd` cannot open it after a reboot. Install a udev rule that also covers `3801`:
+
+```
+sudo cp /tmp/11-panda.rules /etc/udev/rules.d/11-panda.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+`/tmp/11-panda.rules` should contain:
+
+```
+SUBSYSTEM=="usb", ATTRS{idVendor}=="bbaa", ATTRS{idProduct}=="ddcc", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="bbaa", ATTRS{idProduct}=="ddee", MODE="0666"
+SUBSYSTEMS=="usb", ATTR{idVendor}=="bbaa", ATTR{idProduct}=="ddcc", MODE:="0666"
+SUBSYSTEMS=="usb", ATTR{idVendor}=="bbaa", ATTR{idProduct}=="ddee", MODE:="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="3801", ATTRS{idProduct}=="ddcc", MODE="0666"
+SUBSYSTEMS=="usb", ATTR{idVendor}=="3801", ATTR{idProduct}=="ddcc", MODE:="0666"
+```
+
 Flashing the Panda
 ------------------
 
