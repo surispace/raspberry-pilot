@@ -4,11 +4,10 @@ from cereal import log
 from common.realtime import sec_since_boot
 from selfdrive.services import service_list
 
-# pycapnp >= 2.0 makes StructModule.from_bytes a @contextmanager (returns an
-# un-opened _GeneratorContextManager). Enter it so callers get a live reader,
-# matching how this codebase parses messages.
+# cereal wraps from_bytes (see cereal/__init__.py) so it returns a live reader
+# for older pycapnp semantics. No extra entering needed.
 def _event_from_bytes(dat):
-  return log.Event.from_bytes(dat).__enter__()
+  return log.Event.from_bytes(dat)
 
 def new_message():
   dat = log.Event.new_message()
