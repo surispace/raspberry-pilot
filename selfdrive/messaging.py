@@ -4,6 +4,12 @@ from cereal import log
 from common.realtime import sec_since_boot
 from selfdrive.services import service_list
 
+# pycapnp >= 2.0 makes StructModule.from_bytes a @contextmanager (returns an
+# un-opened _GeneratorContextManager). Enter it so callers get a live reader,
+# matching how this codebase parses messages.
+def _event_from_bytes(dat):
+  return log.Event.from_bytes(dat).__enter__()
+
 def new_message():
   dat = log.Event.new_message()
   dat.logMonoTime = int(sec_since_boot() * 1e9)
@@ -70,7 +76,7 @@ def drain_sock(sock, wait_for_one=False):
         dat = sock.recv()
       else:
         dat = sock.recv(zmq.NOBLOCK)
-      dat = log.Event.from_bytes(dat)
+      dat = _event_from_bytes(dat)
       ret.append(dat)
     except zmq.error.Again:
       break
@@ -89,15 +95,15 @@ def recv_sock(sock, wait=False):
     except zmq.error.Again:
       break
   if dat is not None:
-    dat = log.Event.from_bytes(dat)
+    dat = _event_from_bytes(dat)
   return dat
 
 def recv_one(sock):
-  return log.Event.from_bytes(sock.recv())
+  return _event_from_bytes(sock.recv())
 
 def recv_one_or_none(sock):
   try:
-    return log.Event.from_bytes(sock.recv(zmq.NOBLOCK))
+    return _event_from_bytes(sock.recv(zmq.NOBLOCK))
   except zmq.error.Again:
     return None
 
