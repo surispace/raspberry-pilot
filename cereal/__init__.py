@@ -31,7 +31,7 @@ def _make_namespace(real_mod):
       if name in _proxy_cache:
         return _proxy_cache[name]
       inner = getattr(real_mod, name)
-      if isinstance(inner, type) and hasattr(inner, "from_bytes"):
+      if hasattr(inner, "from_bytes"):
         p = _struct_reader_proxy(inner)
         _proxy_cache[name] = p
         return p
