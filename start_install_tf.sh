@@ -26,6 +26,17 @@ sudo apt remove -y unattended-upgrades
 sudo apt update
 sudo apt install -y ansible-core
 
+# kill any previously running raspilot processes for a clean install
+echo "Stopping running raspilot processes.."
+pkill -f 'raspilot' || true
+pkill -f 'transcoderd' || true
+pkill -f 'controlsd' || true
+pkill -f 'pandad' || true
+pkill -f 'boardd' || true
+pkill -f 'ubloxd' || true
+pkill -f 'dashboard' || true
+sleep 2
+
 # rename the folder
 cd ~
 if [ -d ~/raspberry-pilot ] && [ ! -e ~/raspilot ]; then
