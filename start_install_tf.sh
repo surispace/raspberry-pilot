@@ -157,7 +157,7 @@ fi
   onnxruntime \
   pkgconfig \
   psutil \
-  pycapnp==0.6.4 \
+  pycapnp \
   pycryptodome \
   pyjwt \
   pyserial \
