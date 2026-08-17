@@ -121,6 +121,50 @@ First Drive and Training
 8.  If you are completely uncomfortable, press the Lane Keeping Assist button beneath the “SET” button in the ACC cruise control section of the steering wheel to disable the Raspberry Pilot LKAS.
 9.  On all subsequent drives, Raspberry Pilot will start steering the car about 75 seconds after turning on the car. Again, press the LKAS button any time you do not want this feature enabled.
 
+Sanity Check
+------------
+
+Verify the Pi is talking to the red/black panda over USB by dumping the live health message that is published by `boardd` (which runs as part of `launch_openpilot.sh`). The `hwType` field should report `redPanda` (or the type of your panda), and at idle `started` should be `False` until the car's ignition is detected.
+
+```bash
+cd ~/raspilot && . ./python_env.sh && $RASPILOT_PYTHON -c "
+import selfdrive.messaging as m
+from selfdrive.services import service_list
+from cereal import log
+s = m.sub_sock(service_list['health'].port, conflate=True, timeout=2500)
+ev = log.Event.from_bytes(s.recv())
+h = ev.health
+for f in dir(h):
+    if f.startswith('_') or f in ('from_bytes','to_bytes','new_message'): continue
+    try: print(f, '=', getattr(h, f))
+    except: pass
+"
+```
+
+If this times out or returns nothing, `boardd` is not connected to the panda. Check that the panda is present on USB (`lsusb | grep panda` should show `3801:ddcc comma.ai panda`), that the udev rule for the `3801` VID is installed, and that the Pi and the panda share a common ground with the car.
+
+To see live CAN frames published by `boardd` (e.g., with the car on), subscribe to the `can` topic instead:
+
+```bash
+cd ~/raspilot && . ./python_env.sh && $RASPILOT_PYTHON -c "
+import time
+import selfdrive.messaging as m
+from selfdrive.services import service_list
+from cereal import log
+s = m.sub_sock(service_list['can'].port, conflate=True, timeout=2500)
+start = time.time(); total = 0
+while time.time() - start < 10:
+    try:
+        ev = log.Event.from_bytes(s.recv())
+        total += len(ev.can)
+        for c in ev.can[:8]:
+            print('addr=%X src=%d len=%d dat=%s' % (c.address, c.src, len(c.dat), bytes(c.dat).hex()))
+    except Exception as e:
+        print('no can msg for 2.5s:', type(e).__name__); break
+print('TOTAL frames in 10s:', total)
+"
+```
+
 Notes
 -----
 
